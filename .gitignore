@@ -1,0 +1,11 @@
+.env
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Per-machine audit state (each user / machine has their own saved audits)
+audits/
+
+# Manual code snapshots (kept locally as a fallback to git rollback)
+backups/
