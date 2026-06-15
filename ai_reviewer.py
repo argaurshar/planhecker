@@ -26,7 +26,17 @@ def _read_api_key() -> str:
     # value loaded at import time (often the 'your_key_here' placeholder)
     # gets cached in os.environ for the life of the process.
     load_dotenv(override=True)
-    return (os.getenv("OPENAI_API_KEY") or "").strip()
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        # Streamlit Community Cloud has no .env file — the key is supplied via
+        # the app's Secrets box (st.secrets). Read it as a fallback. Guarded so
+        # non-Streamlit callers (eval harness, scripts) never break.
+        try:
+            import streamlit as st
+            key = (st.secrets.get("OPENAI_API_KEY", "") or "").strip()
+        except Exception:
+            pass
+    return key
 
 
 def is_api_key_set() -> bool:
