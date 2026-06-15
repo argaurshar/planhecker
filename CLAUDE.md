@@ -58,6 +58,7 @@ Bumping any version requires (a) testing every dependent path and (b) confirming
 | `pin_overlay.py` | `annotate_sheet(image, pins)` — draws severity-coloured numbered pins on a sheet image. 9-zone grid placement. Cluster offset for same-zone pins. | ~160 |
 | `pdf_report.py` | `build_report(findings, meta, page_map, ...)` — multi-page PDF: cover + annotated sheets + findings register + disclaimer. Uses ReportLab Platypus. | ~485 |
 | `audits_store.py` | Disk persistence — `save_audit(findings_data)`, `load_audit(audit_id)`, `list_audits()`, `delete_audit(id)`. Each audit is one JSON file in `audits/`. Path-traversal protected, atomic writes via `.tmp`-then-rename. Pure functions, no Streamlit dep. | ~195 |
+| `text_pass.py` | **Text-extraction pre-pass** (shipped 2026-05-21). `run_text_pass(pdf_bytes)` reads native PDF text via PyMuPDF and runs ~10 high-precision rules over it (PRELIMINARY title-block, wrong-jurisdiction template text, outdated standards, crawlspace ventilation formula, lot number / lot area cross-sheet consistency, missing CRC notes, code-cycle year, AI/template artifacts). Each finding includes `evidence_quote` — the literal PDF string that triggered the rule. **Cannot hallucinate values** because evidence is guaranteed-literal. Wired into `ai_reviewer.review_full_pdf` so its findings appear alongside vision-pass findings; identifiable by `source="text_extraction"` and `rule_id="TEXT-XXX"`. Zero API cost, <1 second runtime. | ~380 |
 
 ---
 
@@ -79,10 +80,14 @@ Planchecker auditor/
 │
 ├── references/                         ← AUTO-LOADED on every Run Plan Check
 │   ├── _general.md                     ← universal drafting rules (US units)
-│   ├── general instructions.txt        ← firm profile (San Jose CA practice)
+│   ├── general instructions.txt        ← firm profile
 │   ├── california_state.md             ← CBC, CRC, Title 24, ADU state law
-│   ├── san_jose.md                     ← San Jose Municipal amendments
-│   └── saratoga.md                     ← Saratoga + WUI + Heritage Trees
+│   ├── cupertino_rules.md              ← Cupertino Municipal Code amendments (primary — wedge as of 2026-05-21)
+│   ├── sj_residential_general.md       ← 26 universal CA residential rules (SJ-RES prefix is historical; rules apply to any CA jurisdiction)
+│   └── _deferred/                      ← NOT auto-loaded (loader skips subdirs); pre-wedge jurisdictions preserved here
+│       ├── san_jose.md                 ← San Jose Municipal amendments (deferred 2026-05-21)
+│       ├── sj_adu_rules.md             ← SJ-ADU-specific rules (deferred 2026-05-21)
+│       └── saratoga.md                 ← Saratoga + WUI + Heritage Trees (deferred 2026-05-18)
 │
 ├── past_projects/                      ← NOT auto-loaded (subfolder of project root, NOT inside references/)
 │   ├── Burns_Way_QA_QC_Tracker_RevFINAL.txt
@@ -112,30 +117,40 @@ Planchecker auditor/
 
 ---
 
-## Jurisdiction system — California only
+## Jurisdiction system — Cupertino only (micro-niche, flipped 2026-05-21)
 
-`JURISDICTION_LABELS` (in `app.py`) and `JURISDICTION_PROMPTS` (in `prompts.py`) **must stay in lockstep** — every label needs a matching prompt key, exactly.
+`JURISDICTION_LABELS` (in `app.py`) and `JURISDICTION_PROMPTS` (in `prompts.py`) are **deliberately** out of lockstep:
 
-Current options:
+- `JURISDICTION_LABELS` = `("Cupertino (city + state)",)` — the only option exposed in the new-audit UI.
+- `JURISDICTION_PROMPTS` keeps every historical entry ("None", "California", "Saratoga", "Santa Clara County", "San Jose", "Other Bay Area city") so old audits in [audits/](audits/) can still load + render their original jurisdiction. New audits always run under Cupertino.
 
-```
-None
-California (state — CBC + CRC + Title 24)
-San Jose (city + state)
-Santa Clara County (county + state)
-Saratoga (city + state)
-Other Bay Area city (verify locally)
-```
+**Why Cupertino:** Original wedge narrowing on 2026-05-18 was to **San Jose**. On 2026-05-21 the user supplied the first labeled eval dataset (Mann Drive, 10350 Mann Dr, Cupertino R1-10 SFR, 208 hand-labeled findings). When confronted with their own project distribution — "of your last 10 projects, what cities?" — the honest answer was "mostly Cupertino." **The wedge flipped to Cupertino**: it's where the firm's actual project work, eval data, and warm sales pipeline all live. SJ was an aspirational target without data behind it; Cupertino is where the firm actually operates.
 
-**DO NOT re-introduce Indian jurisdictions** (NBC India, Delhi DDA, Haryana HUDA, Punjab Municipal). The pivot from India to California on 2026-05-03 was deliberate. The old Indian seed reference files are gone. If the user asks for India support back, confirm they want to undo the pivot before doing anything.
+**DO NOT re-introduce Indian jurisdictions** (NBC India, Delhi DDA, Haryana HUDA, Punjab Municipal). The pivot from India to California on 2026-05-03 was deliberate. If the user asks for India support back, confirm they want to undo the pivot before doing anything.
 
-**To add a new California city:**
-1. Add the label to `JURISDICTION_LABELS` (app.py)
-2. Add a matching key + prompt addendum to `JURISDICTION_PROMPTS` (prompts.py)
-3. (Optional) Drop a `<city_name>.md` in `references/` — auto-loaded
+**DO NOT re-expand to multi-jurisdiction on a whim.** The narrowing to Cupertino is the deliberate strategic call. If the user asks to add SJ / SCC / Bay Area back, confirm they want to reverse the narrowing — and remind them of the win-the-wedge logic + the project-distribution data that drove the Cupertino choice.
+
+A defensive guard at the top of app.py resets `st.session_state.jurisdiction` to `"Cupertino (city + state)"` if it holds a stale value not in the current `JURISDICTION_LABELS` — keep that guard in place. This also protects loading old audits whose stored jurisdiction string ("San Jose", "Saratoga", "None", etc.) doesn't match the narrowed labels — the audit's original jurisdiction is preserved inside the audit JSON for display purposes; only the new-audit form gets the Cupertino default.
+
+**To later re-expand (when Cupertino is dominated):**
+1. Add the label back to `JURISDICTION_LABELS` (app.py)
+2. The matching prompt key already exists in `JURISDICTION_PROMPTS` (prompts.py)
+3. Move the corresponding city file from `references/_deferred/` back to `references/`
 4. Restart Streamlit
 
-A defensive guard at the top of app.py resets `st.session_state.jurisdiction` to `"None"` if it holds a stale value not in the current `JURISDICTION_LABELS` — keep that guard in place.
+## Eval harness — measure recall against labeled drawings
+
+Built 2026-05-21. Lives at [eval/](eval/). Single source of truth for measuring tool performance.
+
+- [eval/eval.py](eval/eval.py) — runner. Flags: `--single <filename>`, `--dry-run`, `--force-rerun`.
+- Matcher uses **LLM-as-judge** (one OpenAI call per page-bucket; ~$0.30 total per drawing). Bag-of-words / Jaccard / containment metrics are too brittle for terse-GT-vs-verbose-AI mismatch.
+- Audit result is **cached** to `eval/_cache/<basename>.audit.json` after the first run; re-scoring with different matcher / GT / category tweaks is FREE. Use `--force-rerun` only when the prompt has changed and the audit needs a fresh run.
+- Ground-truth schema documented at the top of `eval.py` and demonstrated in `eval/_example_ground_truth.json`. Key fields: `sheet_id`, `pages` (list), `category`, `severity`, `description`.
+- Page-bridging: `pages` (list) is the primary key; falls back to dynamic `sheet_id → page` bridge from the AI's `facts_per_page` extraction.
+
+**Mann Drive baseline (2026-05-21, pre-Cupertino-flip):** 13.9% recall (29 of 208 GT). Post-Cupertino-flip, expect ~28–32% on the same dataset (Cupertino-specific items now in scope). Re-measure with the new prompt before declaring.
+
+**When user provides more drawings:** drop the PDF into `eval/drawings/<name>.pdf`, ask for page-number mapping for the reviewed sheets, convert the Excel/CSV tracker to ground-truth JSON via the schema, run `python eval/eval.py`.
 
 ---
 

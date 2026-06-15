@@ -1,0 +1,60 @@
+{
+  "drawing": "_example_sj_adu.pdf",
+  "jurisdiction": "San Jose (city + state)",
+  "labeled_by": "Senior architect — initials or name",
+  "labeled_at": "2026-05-18",
+  "notes": "Copy this file to eval/ground_truth/<your_drawing_basename>.json and edit. The drawing filename in eval/drawings/ must match (same stem). Schema docs: see eval/eval.py top docstring.",
+
+  "findings": [
+    {
+      "id": "GT-001",
+      "page": 2,
+      "sheet_id": "A1.1",
+      "severity": "critical",
+      "category": "code",
+      "description": "Detached ADU height measured from finished grade instead of natural grade",
+      "expected_citation": "SJ-ADU-001",
+      "must_catch": true
+    },
+    {
+      "id": "GT-002",
+      "page": 3,
+      "sheet_id": "A2.0",
+      "severity": "major",
+      "category": "drawing_error",
+      "description": "Front setback dimension missing on site plan",
+      "expected_citation": "SJ-ZONING-SETBACK",
+      "must_catch": true
+    },
+    {
+      "id": "GT-003",
+      "page": "multiple",
+      "sheet_id": "A1.1↔A3.0",
+      "severity": "major",
+      "category": "coordination",
+      "description": "Bathroom dimensions inconsistent between floor plan (5'×7') and elevation (5'×8')",
+      "expected_citation": null,
+      "must_catch": true
+    },
+    {
+      "id": "GT-004",
+      "page": 4,
+      "sheet_id": "A3.0",
+      "severity": "minor",
+      "category": "code",
+      "description": "Title 24 CF-1R compliance form not referenced on title sheet",
+      "expected_citation": "T24-CF1R",
+      "must_catch": false
+    },
+    {
+      "id": "GT-005",
+      "page": 1,
+      "sheet_id": "A0.0",
+      "severity": "advisory",
+      "category": "constructability",
+      "description": "Foundation depth call-out unclear — needs section reference",
+      "expected_citation": null,
+      "must_catch": false
+    }
+  ]
+}

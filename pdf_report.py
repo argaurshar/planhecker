@@ -395,6 +395,16 @@ def build_report(
 
     flow: list = []
 
+    # Split findings into per-page and cross-sheet groups. Cross-sheet findings
+    # have page_number == "multiple" (emitted by the coordination_check pass in
+    # ai_reviewer.review_full_pdf).
+    per_page_findings = [
+        f for f in findings if isinstance(f.get("page_number"), int)
+    ]
+    cross_sheet_findings = [
+        f for f in findings if f.get("page_number") == "multiple"
+    ]
+
     # ─────────────────────────────────────────────────────────────────────
     # COVER PAGE (editorial magazine layout)
     # ─────────────────────────────────────────────────────────────────────
@@ -656,21 +666,82 @@ def build_report(
                 continue
 
     # ─────────────────────────────────────────────────────────────────────
-    # FINDINGS REGISTER
+    # CROSS-SHEET COORDINATION  (new — only renders if any were found)
+    # ─────────────────────────────────────────────────────────────────────
+
+    if cross_sheet_findings:
+        flow.append(PageBreak())
+        flow.extend(_h2_with_rule("Cross-sheet coordination", s))
+        flow.append(Paragraph(
+            f"{len(cross_sheet_findings)} inconsistenc"
+            f"{'y' if len(cross_sheet_findings) == 1 else 'ies'} flagged between sheets — "
+            "places where two or more sheets disagree on the same value (room dimension, "
+            "setback, height, etc.). Each entry cites both sources. Verify against the "
+            "drawings before reconciling.",
+            s["caption"],
+        ))
+        flow.append(Spacer(1, 12))
+
+        for cs_idx, f in enumerate(cross_sheet_findings, 1):
+            sev = _normalize_severity(f.get("severity"))
+            sheets = f.get("sheets_involved") or []
+            sheets_label = " ↔ ".join(str(sh) for sh in sheets if sh) if sheets else "Multiple sheets"
+
+            left_col = [
+                _severity_marker(sev, s),
+                Spacer(1, 6),
+                Paragraph(f"CRS-{cs_idx:02d}", s["caption"]),
+            ]
+            right_col = [
+                Paragraph(
+                    f'<b>{_escape(sheets_label)}</b>'
+                    f' &nbsp;<font color="#b0aea5">·</font>&nbsp; '
+                    f'<font color="#b0aea5">CROSS-SHEET COORDINATION</font>',
+                    s["finding_meta"],
+                ),
+                Spacer(1, 4),
+                Paragraph(_escape(f.get("description") or "—"), s["body"]),
+                Spacer(1, 6),
+                Paragraph("EVIDENCE (BOTH SIDES)", s["label_orange"]),
+                Paragraph(_escape(f.get("evidence") or "—"), s["body"]),
+                Spacer(1, 4),
+                Paragraph("RECOMMENDATION", s["label_orange"]),
+                Paragraph(_escape(f.get("recommendation") or "—"), s["body"]),
+            ]
+            cs_row = Table(
+                [[left_col, right_col]],
+                colWidths=[1.8 * inch, doc.width - 1.8 * inch],
+            )
+            cs_row.setStyle(TableStyle([
+                ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING",  (1, 0), (1, -1), 0),
+                ("TOPPADDING",    (0, 0), (-1, -1), 14),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+                ("LINEBELOW",     (0, 0), (-1, -1), 0.5, WARM_GRAY),
+            ]))
+            flow.append(KeepTogether(cs_row))
+
+    # ─────────────────────────────────────────────────────────────────────
+    # FINDINGS REGISTER  (per-page findings only; cross-sheet section above)
     # ─────────────────────────────────────────────────────────────────────
 
     flow.append(PageBreak())
     flow.extend(_h2_with_rule("Findings register", s))
     flow.append(Paragraph(
-        f"All {total_findings} finding{'' if total_findings == 1 else 's'}, sorted by severity. "
-        "Each entry includes the source sheet, evidence, and a suggested action. "
-        "FND-NN labels match the pin numbers on the annotated sheets.",
+        f"{len(per_page_findings)} per-sheet finding{'' if len(per_page_findings) == 1 else 's'}, "
+        "sorted by severity. Each entry includes the source sheet, evidence, and a suggested "
+        "action. FND-NN labels match the pin numbers on the annotated sheets.",
         s["caption"],
     ))
     flow.append(Spacer(1, 12))
 
     severity_order = {"critical": 0, "major": 1, "minor": 2, "advisory": 3}
-    indexed = list(enumerate(findings, 1))
+    # Index against the ORIGINAL findings list so FND-NN matches pin numbers on
+    # annotated sheets (which iterate the original list too).
+    indexed_all = list(enumerate(findings, 1))
+    indexed = [(i, f) for (i, f) in indexed_all if isinstance(f.get("page_number"), int)]
     indexed.sort(key=lambda pair: (
         severity_order.get(_normalize_severity(pair[1].get("severity")), 99),
         pair[1].get("page_number", 0),
@@ -782,13 +853,15 @@ def build_report(
             "indicate approximate 3×3 grid zones. Use the annotated thumbnails as a "
             "navigation aid; consult the source drawings for exact location.<br/><br/>"
             "<b>Code grounding is prompt-level.</b> Jurisdictional context (CBC, CRC, Title 24, "
-            "state ADU law, plus city/county amendments) is applied via the AI's training "
+            "state ADU law, plus San Jose Municipal amendments) is applied via the AI's training "
             "knowledge augmented by the project's reference library. The tool does not "
             "retrieve actual code text. Verify any specific code section the AI cites against "
             "the source code book before relying on it.<br/><br/>"
-            "<b>Cross-sheet coordination is not checked.</b> Issues only visible across "
-            "multiple sheets (e.g., column mismatches between architectural and structural "
-            "sheets) fall outside the tool's current scope."
+            "<b>Cross-sheet coordination findings are best-effort.</b> The tool runs a separate "
+            "pass comparing structured facts (rooms, dimensions, FAR/setback claims) across "
+            "sheets. False positives are possible — e.g. the AI may flag two same-named rooms "
+            "on different floors as a mismatch. Always verify both cited values against the "
+            "source sheets before reconciling."
         ),
         styles=s,
     ))

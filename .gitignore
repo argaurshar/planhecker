@@ -9,3 +9,14 @@ audits/
 
 # Manual code snapshots (kept locally as a fallback to git rollback)
 backups/
+
+# Eval set — real drawings + ground-truth labels are confidential per-firm
+eval/drawings/
+eval/ground_truth/
+eval/_cache/
+eval/_last_run.log
+# Client-derived eval artifacts (drawings, trackers, rendered images, audits) — keep code, exclude data
+eval/*.xlsx
+eval/washroom/
+eval/_render_check/
+eval/_all_tool_findings.txt

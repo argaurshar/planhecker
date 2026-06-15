@@ -133,6 +133,32 @@ def _pins_for_page(findings: list[dict], page_num: int) -> tuple:
     return tuple(pins)
 
 
+def _page_sort_value(page_number) -> tuple[int, int]:
+    """Sortable scalar for finding.page_number.
+
+    Per-sheet findings (int page_number) sort by their page; cross-sheet
+    coordination findings (page_number == "multiple") sort to the end of their
+    severity bucket. Without this, the sort raises TypeError when comparing
+    int vs str.
+    """
+    if isinstance(page_number, int):
+        return (0, page_number)
+    return (1, 0)
+
+
+def _cross_sheet_badge_html(finding: dict) -> str:
+    """Return the badge HTML for a cross-sheet coordination finding.
+
+    Uses sheets_involved if the model populated them; falls back to a generic
+    'CROSS-SHEET' label otherwise. Empty string for non-coordination findings.
+    """
+    if finding.get("page_number") != "multiple":
+        return ""
+    sheets = finding.get("sheets_involved") or []
+    label = " ↔ ".join(str(s) for s in sheets if s) if sheets else "CROSS-SHEET"
+    return f'<span class="badge cross">↔ {html.escape(label)}</span>'
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Review-mode renderers (Phase 2)
 #
@@ -188,14 +214,7 @@ def _cached_review_sheet_url(
 SEVERITIES = ("critical", "major", "minor", "advisory")
 FILTER_LABELS = ("All", "Critical", "Major", "Minor", "Advisory")
 
-JURISDICTION_LABELS = (
-    "None",
-    "California (state — CBC + CRC + Title 24)",
-    "San Jose (city + state)",
-    "Santa Clara County (county + state)",
-    "Saratoga (city + state)",
-    "Other Bay Area city (verify locally)",
-)
+JURISDICTION_LABELS = ("Cupertino (city + state)",)
 
 # Roles defined in references/general instructions.txt — used by the role-selector
 # at the top of the page. "—" means no role chosen (read-only mode for everyone).
@@ -476,24 +495,7 @@ st.markdown(
   #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
   .stDeployButton, div[data-testid="stToolbar"] { display: none !important; }
 
-  .stApp::before {
-    content: "";
-    position: fixed; inset: 0;
-    background-image:
-      linear-gradient(var(--rule) 1px, transparent 1px),
-      linear-gradient(90deg, var(--rule) 1px, transparent 1px),
-      linear-gradient(var(--rule-strong) 1px, transparent 1px),
-      linear-gradient(90deg, var(--rule-strong) 1px, transparent 1px);
-    background-size: 24px 24px, 24px 24px, 144px 144px, 144px 144px;
-    background-position: -1px -1px;
-    pointer-events: none; z-index: 0; opacity: 0.55;
-  }
-  .stApp::after {
-    content: "";
-    position: fixed; inset: 0;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.94 0 0 0 0 0.90 0 0 0 0 0.82 0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-    pointer-events: none; z-index: 0; mix-blend-mode: overlay; opacity: 0.5;
-  }
+  .stApp::before, .stApp::after { content: none !important; display: none !important; }
 
   .main .block-container { position: relative; z-index: 1; padding-top: 1.2rem; max-width: 1280px; }
 
@@ -872,7 +874,7 @@ st.markdown(
 
   .findings-stack { display: flex; flex-direction: column; gap: 16px; margin-bottom: 56px; }
   .finding {
-    border: 1px solid var(--rule-strong); background: rgba(19, 40, 63, 0.5);
+    border: 1px solid var(--rule-strong); background: rgba(19, 40, 63, 0.92);
     border-left-width: 4px; animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .finding-critical { border-left-color: var(--vermillion); }
@@ -891,6 +893,7 @@ st.markdown(
   .badge-major    { color: var(--amber);     border-color: var(--amber);     background: rgba(240, 160, 96, 0.06); }
   .badge-minor    { color: var(--ochre);     border-color: var(--ochre);     background: rgba(232, 200, 79, 0.06); }
   .badge-advisory { color: var(--blueprint); border-color: var(--blueprint); background: rgba(127, 203, 227, 0.06); }
+  .badge.cross    { color: var(--blueprint); border-color: var(--blueprint-dim); background: rgba(127, 203, 227, 0.08); letter-spacing: 0.16em; }
   .finding-head .cat { color: var(--ink-dim); }
   .finding-head .no  { margin-left: auto; color: var(--ink-dim); }
 
@@ -1142,7 +1145,7 @@ st.markdown(
   [data-testid="stExpander"] {
     border: 1px solid var(--rule-strong) !important;
     border-radius: 0 !important;
-    background: rgba(19, 40, 63, 0.4);
+    background: rgba(19, 40, 63, 0.92);
     margin: 40px 0 24px 0;
   }
   [data-testid="stExpander"] details summary,
@@ -1253,7 +1256,7 @@ st.markdown(
   }
 
   /* Build register sheet */
-  .sheet { border: 1px solid var(--rule-strong); padding: 28px 32px; background: rgba(19, 40, 63, 0.4); margin: 56px 0 24px 0; animation: rise 1s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .sheet { border: 1px solid var(--rule-strong); padding: 28px 32px; background: rgba(19, 40, 63, 0.92); margin: 56px 0 24px 0; animation: rise 1s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
   .sheet-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
   .sheet-head h2 { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; margin: 0; color: var(--ink); letter-spacing: -0.01em; }
   .sheet-head .sheet-no { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-dim); }
@@ -1287,7 +1290,7 @@ if "uploader_counter" not in st.session_state:
 for _key, _default in (
     ("project_name", ""),
     ("architect", ""),
-    ("jurisdiction", "None"),
+    ("jurisdiction", "Cupertino (city + state)"),
     ("set_date", datetime.now().date()),
     # Phase 1 collaboration features — role + persistence
     ("current_role", ROLE_NONE),
@@ -1300,10 +1303,10 @@ for _key, _default in (
         st.session_state[_key] = _default
 
 # Defensive: if a stale session holds a jurisdiction value that no longer
-# exists in JURISDICTION_LABELS (e.g. after the India → California pivot),
-# reset to "None" so st.selectbox doesn't error on mount.
+# exists in JURISDICTION_LABELS (e.g. after the SJ micro-niche narrowing),
+# reset to SJ so st.selectbox doesn't error on mount.
 if st.session_state.jurisdiction not in JURISDICTION_LABELS:
-    st.session_state.jurisdiction = "None"
+    st.session_state.jurisdiction = "Cupertino (city + state)"
 
 # Same defensive reset for current_role
 if st.session_state.current_role not in ROLE_LABELS:
@@ -1365,8 +1368,8 @@ def _on_audit_pick():
     # Sync the metadata input fields with the loaded audit
     st.session_state.project_name = loaded.get("project_name", "") or ""
     st.session_state.architect = loaded.get("architect", "") or ""
-    j = loaded.get("jurisdiction", "None") or "None"
-    st.session_state.jurisdiction = j if j in JURISDICTION_LABELS else "None"
+    j = loaded.get("jurisdiction", "Cupertino (city + state)") or "Cupertino (city + state)"
+    st.session_state.jurisdiction = j if j in JURISDICTION_LABELS else "Cupertino (city + state)"
     sd = loaded.get("set_date")
     if sd:
         try:
@@ -1382,7 +1385,7 @@ def _start_new_audit():
     st.session_state.uploader_counter = st.session_state.get("uploader_counter", 0) + 1
     st.session_state.project_name = ""
     st.session_state.architect = ""
-    st.session_state.jurisdiction = "None"
+    st.session_state.jurisdiction = "Cupertino (city + state)"
     st.session_state.set_date = datetime.now().date()
     # Force the audit picker back to "Current session"
     st.session_state["audit_picker"] = _OPTION_CURRENT
@@ -1506,7 +1509,7 @@ with meta_c3:
         "Jurisdiction",
         options=JURISDICTION_LABELS,
         key="jurisdiction",
-        help="Required. Tells the AI which code conventions to apply (CBC, CRC, Title 24 + local amendments).",
+        help="PlanCheck is currently scoped to Cupertino. Audit applies CBC + CRC + Title 24 + Cupertino Municipal Code amendments (CMC §19.28, §14.18, §16.54). Other Bay Area jurisdictions deferred to a later phase.",
     )
 with meta_c4:
     st.date_input(
@@ -2316,7 +2319,7 @@ if uploaded_files:
                         key=lambda pair: (
                             severity_order.get(_normalize_severity(pair[1].get("severity")), 99),
                             1 if pair[1].get("resolved") else 0,  # resolved sinks to bottom of bucket
-                            pair[1].get("page_number", 0),
+                            _page_sort_value(pair[1].get("page_number")),
                             pair[0],
                         ),
                     )
@@ -2410,7 +2413,11 @@ if uploaded_files:
                             evidence = html.escape(f.get("evidence") or "—")
                             recommendation = html.escape(f.get("recommendation") or "—")
                             page_num = f.get("page_number")
-                            if fd.get("is_multi") and isinstance(page_num, int) and page_num > 0:
+                            if page_num == "multiple":
+                                # Cross-sheet coordination finding — no single page; no thumb.
+                                page_badge = _cross_sheet_badge_html(f)
+                                thumb_caption = ""
+                            elif fd.get("is_multi") and isinstance(page_num, int) and page_num > 0:
                                 src_file, src_page = _source_for_page(
                                     page_num, fd.get("page_map"), fd.get("primary_filename") or "",
                                 )
@@ -2606,7 +2613,7 @@ if uploaded_files:
             # Reset project metadata (Week 1 — Deliverable 2g)
             st.session_state.project_name = ""
             st.session_state.architect = ""
-            st.session_state.jurisdiction = "None"
+            st.session_state.jurisdiction = "Cupertino (city + state)"
             st.session_state.set_date = datetime.now().date()
             for k in list(st.session_state.keys()):
                 if k.startswith("sev_filter_") or k.startswith("dl_csv_"):
@@ -2978,7 +2985,7 @@ if (not uploaded_files) and _rv_fd and _rv_audit_id and not _rv_fd.get("error"):
             key=lambda pair: (
                 _rv_severity_order.get(_normalize_severity(pair[1].get("severity")), 99),
                 1 if pair[1].get("resolved") else 0,
-                pair[1].get("page_number", 0),
+                _page_sort_value(pair[1].get("page_number")),
                 pair[0],
             ),
         )
@@ -3001,7 +3008,10 @@ if (not uploaded_files) and _rv_fd and _rv_audit_id and not _rv_fd.get("error"):
                 evidence = html.escape(f.get("evidence") or "—")
                 recommendation = html.escape(f.get("recommendation") or "—")
                 page_num = f.get("page_number")
-                if _rv_is_multi and isinstance(page_num, int) and page_num > 0:
+                if page_num == "multiple":
+                    # Cross-sheet coordination finding — no single page.
+                    page_badge = _cross_sheet_badge_html(f)
+                elif _rv_is_multi and isinstance(page_num, int) and page_num > 0:
                     src_file, src_page = _source_for_page(page_num, _rv_page_map, _rv_primary)
                     page_badge = (
                         f'<span class="badge src">{html.escape(_truncate_filename(src_file, 32))}'
@@ -3161,12 +3171,12 @@ with st.expander("About PlanCheck · what it does and what it does not"):
 
 - Spots obvious drawing problems: missing dimensions, unlabeled rooms, missing door/window schedules, conflicting callouts
 - Flags universal good-practice issues that apply in any project
-- When you select a jurisdiction (California state, San Jose, Santa Clara County, Saratoga, or another Bay Area city), the AI is told to apply CBC, CRC, Title 24, ADU state law (AB 68 / SB 13 / SB 9 etc.), and the relevant local amendments — and to cite specific code sections where confident
+- The audit is currently scoped to Cupertino — applies CBC, CRC, Title 24, ADU state law (AB 68 / SB 13 / SB 9 etc.), AND Cupertino Municipal Code amendments (CMC §19.28 zoning / §14.18 Heritage Trees / §16.54 reach code) — and cites specific code sections where confident
 - Acts as a fast second pair of eyes before submission, plan-check resubmittal, or AHJ comment response
 
 **Reference rules — your editable rule library**
 
-The `references/` folder in the project contains markdown / text files (`_general.md`, `general instructions.txt`, `california_state.md`, `san_jose.md`, `saratoga.md`, plus anything else you drop in). You can edit them directly in Notepad / VS Code. The contents are appended to every plan-check prompt so the AI applies *your* firm's rules, not just its training knowledge.
+The `references/` folder in the project contains markdown / text files (`_general.md`, `general instructions.txt`, `california_state.md`, `cupertino_rules.md`, `sj_residential_general.md`, plus anything else you drop in). You can edit them directly in Notepad / VS Code. The contents are appended to every plan-check prompt so the AI applies *your* firm's rules, not just its training knowledge.
 
 - **All `.md` and `.txt` files in `references/` root are auto-loaded on every run** — drop a new file in, it gets used; move a file to a subfolder (e.g. `past_projects/`), it stops being used
 - The findings header tells you which files were applied on each run
